@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/ryanholt/boxpacker"
+	boxpacker "github.com/ryanlholt/BoxPacker"
 )
 
 // Pack runs a single packing problem and returns its result.

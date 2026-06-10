@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ryanholt/boxpacker"
+	boxpacker "github.com/ryanlholt/BoxPacker"
 )
 
 // Request is the JSON payload describing a packing problem.
