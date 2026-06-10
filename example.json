@@ -1,0 +1,14 @@
+{
+  "boxes": [
+    { "reference": "small mailer", "outerWidth": 230, "outerLength": 300, "outerDepth": 240, "emptyWeight": 160, "innerWidth": 220, "innerLength": 290, "innerDepth": 230, "maxWeight": 15000 },
+    { "reference": "large mailer", "outerWidth": 370, "outerLength": 375, "outerDepth": 380, "emptyWeight": 410, "innerWidth": 360, "innerLength": 365, "innerDepth": 370, "maxWeight": 15000 }
+  ],
+  "items": [
+    { "description": "mug",  "width": 110, "length": 110, "depth": 105, "weight": 350, "rotation": "never",    "quantity": 4 },
+    { "description": "book", "width": 210, "length": 130, "depth": 30,  "weight": 450, "rotation": "keepFlat", "quantity": 2 },
+    { "description": "toy",  "width": 80,  "length": 60,  "depth": 60,  "weight": 150, "rotation": "best",     "quantity": 10 }
+  ],
+  "options": {
+    "allowPartialResults": false
+  }
+}
