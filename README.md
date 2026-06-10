@@ -1,6 +1,7 @@
 # boxpackerclient
 
-A small Go client around the [boxpacker](../BoxPacker) library. It reads a
+A small Go client around the
+[boxpacker](https://github.com/ryanlholt/BoxPacker) library. It reads a
 packing problem as JSON and returns the solution as JSON, either over
 **stdin/stdout** or as an **HTTP service**.
 
@@ -8,6 +9,19 @@ packing problem as JSON and returns the solution as JSON, either over
 
 ```sh
 go build -o boxpackerclient .
+```
+
+## Docker (HTTP service)
+
+```sh
+# public dependency
+docker build -t boxpackerclient .
+
+# private dependency (forwards your SSH agent for the module download)
+docker build --ssh default --build-arg PRIVATE_DEP=1 -t boxpackerclient .
+
+docker run --rm -p 8080:8080 boxpackerclient
+curl -s --data-binary @example.json localhost:8080/pack
 ```
 
 ## Usage
