@@ -8,7 +8,7 @@
 #   curl -s --data-binary @example.json localhost:8080/pack
 
 # ---- build stage ----
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 
 # git for module downloads; CA certs for TLS.
 RUN apk add --no-cache git ca-certificates
