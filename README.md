@@ -28,6 +28,11 @@ boxpackerclient < example.json            # compact JSON
 boxpackerclient -pretty < example.json    # indented JSON
 ```
 
+`example-bulk.json` is a larger sample: thousands of items across several
+distinct types, packed in one request. It exercises the large-quantity
+short-circuit (see `disableQuantityShortCircuit` below) and still returns
+near-instantly.
+
 ### HTTP service
 
 ```sh
@@ -83,7 +88,9 @@ Endpoints:
 - **`allowPartialResults`** — when `true`, items that fit in no box are
   returned in `unpackedItems` instead of failing the whole request.
 - **`disableQuantityShortCircuit`** turns off the large-quantity replication
-  optimisation (on by default).
+  optimisation (on by default). The optimisation keeps packing fast for big
+  orders of *mixed* item types — not just bulk runs of one item — so there is
+  rarely a reason to disable it outside of debugging.
 
 ## Response schema
 

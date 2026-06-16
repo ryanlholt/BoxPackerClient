@@ -23,8 +23,9 @@ type Options struct {
 	// Response.UnpackedItems.
 	AllowPartialResults bool `json:"allowPartialResults"`
 
-	// DisableQuantityShortCircuit turns off the identical-item replication
-	// optimisation, which is on by default.
+	// DisableQuantityShortCircuit turns off the large-quantity replication
+	// optimisation, which is on by default. The optimisation keeps packing fast
+	// for big orders of mixed item types, not just bulk runs of a single item.
 	DisableQuantityShortCircuit bool `json:"disableQuantityShortCircuit"`
 }
 

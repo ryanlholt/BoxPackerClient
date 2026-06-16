@@ -8,9 +8,13 @@
 //   BASE=http://localhost:8080   target service
 //   PROFILE=ramp|rate|spike|soak which scenario to run (default: ramp)
 //   RATE=200                      requests/sec for the constant-rate scenario
+//   BULK=0.1                      fraction of requests that are bulk mixed-item
+//                                 orders (large quantities of several distinct
+//                                 item types). 0 disables them entirely.
 //
 // Example:
 //   PROFILE=rate RATE=500 k6 run loadtest/pack.js
+//   BULK=0.3 k6 run loadtest/pack.js          # heavier bulk-order mix
 
 import http from 'k6/http';
 import { check } from 'k6';
@@ -19,6 +23,11 @@ import { Trend, Counter } from 'k6/metrics';
 const BASE = __ENV.BASE || 'http://localhost:8080';
 const PROFILE = __ENV.PROFILE || 'ramp';
 const RATE = parseInt(__ENV.RATE || '200', 10);
+// Share of traffic that is a bulk mixed-item order. boxpacker v0.3.0
+// short-circuits these (large quantities across many distinct item types) so
+// they no longer scale with total quantity — this knob keeps a slice of the
+// load exercising that path. See buildBulkPayload below.
+const BULK = parseFloat(__ENV.BULK || '0.1');
 
 // Custom metric so we can see latency split out by payload size.
 const packDuration = new Trend('pack_duration', true);
@@ -62,6 +71,26 @@ function buildPayload() {
     const t = ITEM_TEMPLATES[randInt(0, ITEM_TEMPLATES.length - 1)];
     items.push(Object.assign({}, t, { quantity: randInt(1, 6) }));
   }
+  return {
+    boxes: BOX_CATALOG,
+    items: items,
+    options: { allowPartialResults: true },
+  };
+}
+
+// Bulk mixed-item order: a handful of DISTINCT item types, each at a large
+// quantity (hundreds to a few thousand). Before v0.3.0 this was the pathological
+// case — total work scaled with the summed quantity, so the load test capped
+// quantities at 6 to avoid it. v0.3.0's short-circuit replicates whole boxfuls
+// of the winning mix, so cost now tracks the number of distinct box layouts
+// rather than the order size. We send these to confirm that holds under load.
+function buildBulkPayload() {
+  // Use every distinct template so the order is genuinely mixed, then bulk up
+  // each line. Two-of-everything-plus would still be "mixed" but we want the
+  // large per-type quantities that make replication kick in.
+  const items = ITEM_TEMPLATES.map((t) =>
+    Object.assign({}, t, { quantity: randInt(200, 3000) })
+  );
   return {
     boxes: BOX_CATALOG,
     items: items,
@@ -131,7 +160,9 @@ export const options = {
 };
 
 export default function () {
-  const payload = JSON.stringify(buildPayload());
+  const payload = JSON.stringify(
+    BULK > 0 && Math.random() < BULK ? buildBulkPayload() : buildPayload()
+  );
   const res = http.post(`${BASE}/pack`, payload, {
     headers: { 'Content-Type': 'application/json' },
   });

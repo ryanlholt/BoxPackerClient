@@ -6,8 +6,15 @@ package main
 // network/serialisation overhead.
 //
 //	go test -bench=BenchmarkPack -benchmem -benchtime=5s
+//
+// boxpacker v0.3.0 short-circuits large quantities of mixed items by replicating
+// whole boxfuls of the winning mix rather than re-solving each box, so solve
+// cost grows far slower than the raw item total. BenchmarkPackLargeMixed
+// exercises that path — note how a 10x jump in quantity is only ~2x the time
+// (the remaining cost is allocating and serialising every replicated box).
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -63,6 +70,47 @@ func BenchmarkPack(b *testing.B) {
 	for _, s := range sizes {
 		req := benchRequest(s.lines)
 		b.Run(s.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				resp, err := Pack(req)
+				if err != nil {
+					b.Fatalf("Pack returned validation error: %v", err)
+				}
+				if resp.Error != "" {
+					b.Fatalf("unexpected packing error: %s", resp.Error)
+				}
+			}
+		})
+	}
+}
+
+// bulkMixedRequest builds a bulk mixed-item order: every item template at the
+// same large quantity, so the problem mixes distinct types yet packs into only
+// a few repeated box layouts. This is the case boxpacker v0.3.0 newly keeps
+// fast (v0.2.0's short-circuit only fired for a single repeated item type).
+func bulkMixedRequest(qtyPerType int) *Request {
+	templates := benchItemTemplates()
+	items := make([]ItemInput, len(templates))
+	for i, t := range templates {
+		t.Quantity = qtyPerType
+		items[i] = t
+	}
+	return &Request{
+		Boxes:   benchBoxes(),
+		Items:   items,
+		Options: Options{AllowPartialResults: true},
+	}
+}
+
+// BenchmarkPackLargeMixed packs large quantities of several distinct item types
+// at once. The short-circuit replicates whole boxfuls of the winning mix, so
+// per-op cost grows far slower than the total item count — sweeping the
+// per-type quantity by 10x makes that scaling visible.
+func BenchmarkPackLargeMixed(b *testing.B) {
+	quantities := []int{500, 5000}
+	for _, qty := range quantities {
+		req := bulkMixedRequest(qty)
+		b.Run(fmt.Sprintf("qtyPerType_%d", qty), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				resp, err := Pack(req)
