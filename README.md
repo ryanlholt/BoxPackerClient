@@ -36,16 +36,37 @@ near-instantly.
 ### HTTP service
 
 ```sh
-boxpackerclient -http :8080
-curl -s --data-binary @example.json localhost:8080/pack
+BOXPACKER_API_TOKEN=your-secret boxpackerclient -http :8080
+curl -s -H "Authorization: Bearer your-secret" \
+  --data-binary @example.json localhost:8080/pack
 ```
 
 Endpoints:
 
-| Method | Path       | Description                         |
-|--------|------------|-------------------------------------|
-| POST   | `/pack`    | Pack the JSON body, return solution |
-| GET    | `/healthz` | Liveness check (`ok`)               |
+| Method | Path       | Description                         | Auth          |
+|--------|------------|-------------------------------------|---------------|
+| POST   | `/pack`    | Pack the JSON body, return solution | required      |
+| GET    | `/healthz` | Liveness check (`ok`)               | open          |
+
+### Authentication
+
+The HTTP service refuses to start unless a bearer token is configured, and
+every `POST /pack` request must present it. `/healthz` is left open for
+liveness probes.
+
+| Env var               | Required | Purpose                                                              |
+|-----------------------|----------|---------------------------------------------------------------------|
+| `BOXPACKER_API_TOKEN` | yes      | Shared secret. Requests must send `Authorization: Bearer <token>`.  |
+| `BOXPACKER_CF_SECRET` | no       | When set, requests must **also** send `X-Origin-Auth: <secret>`.    |
+
+`BOXPACKER_CF_SECRET` is for deployments behind Cloudflare. The public origin
+URL (e.g. on DigitalOcean App Platform) is reachable directly and would
+otherwise bypass Cloudflare. Configure a Cloudflare Transform Rule to inject
+`X-Origin-Auth: <secret>` on proxied requests so the origin can reject traffic
+that didn't come through Cloudflare. Leave it unset and only the bearer token
+is enforced. Both secrets are compared in constant time. Always run behind TLS
+(Cloudflare → origin should be SSL/TLS **Full (strict)**), since the secrets
+travel in request headers.
 
 ## Request schema
 

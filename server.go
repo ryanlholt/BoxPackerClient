@@ -7,15 +7,26 @@ import (
 	"os"
 )
 
-// serve starts the HTTP service and blocks until it fails.
+// serve starts the HTTP service and blocks until it fails. It refuses to start
+// unless authentication is configured (see authFromEnv).
 func serve(addr string) error {
+	auth, err := authFromEnv()
+	if err != nil {
+		return err
+	}
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/pack", handlePack)
+	// /pack is guarded; /healthz is intentionally left open for liveness probes.
+	mux.Handle("/pack", auth.requireAuth(http.HandlerFunc(handlePack)))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})
 
-	fmt.Fprintf(os.Stderr, "boxpackerclient: listening on %s (POST /pack)\n", addr)
+	cf := "disabled"
+	if auth.cloudflareEnforced() {
+		cf = "required (" + cfHeader + ")"
+	}
+	fmt.Fprintf(os.Stderr, "boxpackerclient: listening on %s (POST /pack, bearer token required, Cloudflare header %s)\n", addr, cf)
 	return http.ListenAndServe(addr, mux)
 }
 

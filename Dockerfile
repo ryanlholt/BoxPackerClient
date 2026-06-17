@@ -4,8 +4,13 @@
 # GitHub (github.com/ryanlholt/BoxPacker).
 #
 #   docker build -t boxpackerclient .
-#   docker run --rm -p 8080:8080 boxpackerclient
-#   curl -s --data-binary @example.json localhost:8080/pack
+#   docker run --rm -p 8080:8080 -e BOXPACKER_API_TOKEN=your-secret boxpackerclient
+#   curl -s -H "Authorization: Bearer your-secret" \
+#     --data-binary @example.json localhost:8080/pack
+#
+# The HTTP service refuses to start without BOXPACKER_API_TOKEN. Pass secrets at
+# runtime with -e (never bake them into the image): BOXPACKER_API_TOKEN is
+# required; BOXPACKER_CF_SECRET enables the Cloudflare X-Origin-Auth check.
 
 # ---- build stage ----
 FROM golang:1.26-alpine AS build

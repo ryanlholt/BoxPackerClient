@@ -11,6 +11,17 @@ on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **HTTP authentication for the `/pack` endpoint.** The HTTP service now refuses
+  to start unless a bearer token is configured, and every `POST /pack` request
+  must present it; `/healthz` stays open for liveness probes. Secrets are
+  compared in constant time.
+  - `BOXPACKER_API_TOKEN` (required): the shared secret. Requests must send
+    `Authorization: Bearer <token>`.
+  - `BOXPACKER_CF_SECRET` (optional): when set, requests must **also** send
+    `X-Origin-Auth: <secret>`. Intended for deployments behind Cloudflare, where
+    a Transform Rule injects the header so the public origin can reject traffic
+    that bypassed Cloudflare. Left unset, only the bearer token is enforced.
+
 - **Cost-aware packing (`objective` option).** A new `objective` request option
   selects which box wins at each packing step, backed by BoxPacker v0.4.0's
   custom `PackedBoxSorter`:
