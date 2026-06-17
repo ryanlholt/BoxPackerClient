@@ -83,6 +83,65 @@ func TestPackLargeMixedQuantity(t *testing.T) {
 	}
 }
 
+// TestPackBillableWeightObjective exercises boxpacker v0.4.0's custom box
+// sorter via the "billableWeight" objective. A small, light item is offered two
+// boxes that both fit it: a compact one and a roomy one. The default objective
+// is indifferent here, but the billable-weight objective must avoid the roomy
+// box, whose dimensional weight would inflate the shipping charge. The response
+// should also carry the volumetric/billable weight fields once a divisor is set.
+func TestPackBillableWeightObjective(t *testing.T) {
+	compact := BoxInput{
+		Reference: "compact", OuterWidth: 120, OuterLength: 120, OuterDepth: 120,
+		EmptyWeight: 50, InnerWidth: 110, InnerLength: 110, InnerDepth: 110, MaxWeight: 100000,
+	}
+	roomy := BoxInput{
+		Reference: "roomy", OuterWidth: 600, OuterLength: 600, OuterDepth: 600,
+		EmptyWeight: 50, InnerWidth: 590, InnerLength: 590, InnerDepth: 590, MaxWeight: 100000,
+	}
+	item := ItemInput{Description: "trinket", Width: 100, Length: 100, Depth: 100, Weight: 200, Rotation: "best", Quantity: 1}
+
+	req := &Request{
+		Boxes:   []BoxInput{roomy, compact}, // roomy first to prove the sorter, not input order, decides
+		Items:   []ItemInput{item},
+		Options: Options{Objective: "billableWeight", DimWeightDivisor: 5000},
+	}
+
+	resp, err := Pack(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Error != "" {
+		t.Fatalf("unexpected packing error: %s", resp.Error)
+	}
+	if len(resp.Boxes) != 1 {
+		t.Fatalf("expected 1 box, got %d", len(resp.Boxes))
+	}
+	if got := resp.Boxes[0].Reference; got != "compact" {
+		t.Fatalf("billableWeight objective should pick the compact box, got %q", got)
+	}
+	if resp.Boxes[0].BillableWeight <= 0 || resp.Boxes[0].VolumetricWeight <= 0 {
+		t.Fatalf("expected weight fields populated, got %+v", resp.Boxes[0])
+	}
+}
+
+// TestPackBillableWeightRequiresDivisor verifies the objective is rejected
+// without the divisor it needs, and that unknown objectives are rejected too.
+func TestPackBillableWeightRequiresDivisor(t *testing.T) {
+	base := func(o Options) *Request {
+		return &Request{
+			Boxes:   []BoxInput{mailerBox()},
+			Items:   []ItemInput{{Description: "toy", Width: 80, Length: 60, Depth: 60, Weight: 150, Quantity: 1}},
+			Options: o,
+		}
+	}
+	if _, err := Pack(base(Options{Objective: "billableWeight"})); err == nil {
+		t.Fatal("expected error when billableWeight objective has no divisor")
+	}
+	if _, err := Pack(base(Options{Objective: "nonsense"})); err == nil {
+		t.Fatal("expected error for unknown objective")
+	}
+}
+
 func TestPackPartialResultsKeepsLeftovers(t *testing.T) {
 	req := &Request{
 		Boxes: []BoxInput{mailerBox()},

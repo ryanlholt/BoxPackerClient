@@ -27,6 +27,24 @@ type Options struct {
 	// optimisation, which is on by default. The optimisation keeps packing fast
 	// for big orders of mixed item types, not just bulk runs of a single item.
 	DisableQuantityShortCircuit bool `json:"disableQuantityShortCircuit"`
+
+	// Objective selects which box wins at each packing iteration (boxpacker
+	// v0.4.0's custom PackedBoxSorter). Accepted values (case-insensitive):
+	//
+	//	""/"default"        most items, then fullest by volume (library default)
+	//	"billableWeight"    minimise each parcel's billable shipping weight,
+	//	                    i.e. max(actual gross weight, dimensional weight)
+	//
+	// "billableWeight" requires DimWeightDivisor. Note the solver stays greedy:
+	// this changes the per-parcel choice, not the global cost across parcels.
+	Objective string `json:"objective"`
+
+	// DimWeightDivisor is the carrier's dimensional divisor: dim weight is
+	// outerVolume / divisor. It is required when Objective is "billableWeight"
+	// and, whenever positive, also populates the volumetricWeight/billableWeight
+	// fields on each output box. Dimensions, divisor and item weights must share
+	// consistent units (e.g. mm with 5000 → grams; inches with 139 → pounds).
+	DimWeightDivisor float64 `json:"dimWeightDivisor"`
 }
 
 // BoxInput describes one available box type.
@@ -69,14 +87,19 @@ type Response struct {
 // PackedBoxOutput is one box in the solution along with its contents and a few
 // derived statistics.
 type PackedBoxOutput struct {
-	Reference         string       `json:"reference"`
-	ItemCount         int          `json:"itemCount"`
-	Weight            int          `json:"weight"`     // including the empty box
-	ItemWeight        int          `json:"itemWeight"` // items only
-	InnerVolume       int          `json:"innerVolume"`
-	UsedVolume        int          `json:"usedVolume"`
-	VolumeUtilisation float64      `json:"volumeUtilisation"`
-	Items             []ItemOutput `json:"items"`
+	Reference         string  `json:"reference"`
+	ItemCount         int     `json:"itemCount"`
+	Weight            int     `json:"weight"`     // including the empty box
+	ItemWeight        int     `json:"itemWeight"` // items only
+	InnerVolume       int     `json:"innerVolume"`
+	UsedVolume        int     `json:"usedVolume"`
+	VolumeUtilisation float64 `json:"volumeUtilisation"`
+	// VolumetricWeight and BillableWeight are reported only when the request
+	// supplies a positive DimWeightDivisor. BillableWeight is what a carrier
+	// would charge: max(actual gross weight, volumetric weight).
+	VolumetricWeight float64      `json:"volumetricWeight,omitempty"`
+	BillableWeight   float64      `json:"billableWeight,omitempty"`
+	Items            []ItemOutput `json:"items"`
 }
 
 // ItemOutput is one packed item: its identity plus the position and
@@ -106,6 +129,50 @@ func parseRotation(s string) (boxpacker.Rotation, error) {
 	}
 }
 
+// applyObjective configures the packer's box-selection strategy from the
+// request options, validating the objective and its parameters.
+func applyObjective(p *boxpacker.Packer, o Options) error {
+	switch strings.ToLower(strings.TrimSpace(o.Objective)) {
+	case "", "default":
+		// Leave the library default (most items, then fullest) in place.
+		return nil
+	case "billableweight", "billable", "dimweight":
+		if o.DimWeightDivisor <= 0 {
+			return fmt.Errorf("objective %q requires a positive dimWeightDivisor", o.Objective)
+		}
+		p.SetPackedBoxSorter(billableWeightSorter(o.DimWeightDivisor))
+		return nil
+	default:
+		return fmt.Errorf("unknown objective %q (want default or billableWeight)", o.Objective)
+	}
+}
+
+// billableWeightSorter prefers the box with the lower billable shipping weight
+// (max of actual and dimensional weight). Ties fall back to the default
+// objective's intent: fewer parcels (more items per box), then fuller by volume.
+func billableWeightSorter(divisor float64) boxpacker.PackedBoxSorter {
+	return boxpacker.PackedBoxSorterFunc(func(a, b *boxpacker.PackedBox) int {
+		aw, bw := boxpacker.BillableWeight(a, divisor), boxpacker.BillableWeight(b, divisor)
+		switch {
+		case aw < bw:
+			return -1
+		case aw > bw:
+			return 1
+		}
+		if d := len(b.Items) - len(a.Items); d != 0 {
+			return d // more items first
+		}
+		switch {
+		case a.VolumeUtilisation() > b.VolumeUtilisation():
+			return -1
+		case a.VolumeUtilisation() < b.VolumeUtilisation():
+			return 1
+		default:
+			return 0
+		}
+	})
+}
+
 // applyTo populates a Packer from the request, validating as it goes.
 func (r *Request) applyTo(p *boxpacker.Packer) error {
 	if len(r.Boxes) == 0 {
@@ -117,6 +184,10 @@ func (r *Request) applyTo(p *boxpacker.Packer) error {
 
 	p.AllowPartialResults(r.Options.AllowPartialResults)
 	p.SetQuantityShortCircuit(!r.Options.DisableQuantityShortCircuit)
+
+	if err := applyObjective(p, r.Options); err != nil {
+		return err
+	}
 
 	for i, b := range r.Boxes {
 		if b.Reference == "" {
@@ -158,8 +229,11 @@ func (r *Request) applyTo(p *boxpacker.Packer) error {
 	return nil
 }
 
-// newPackedBoxOutput converts a library PackedBox to its JSON output form.
-func newPackedBoxOutput(b *boxpacker.PackedBox) PackedBoxOutput {
+// newPackedBoxOutput converts a library PackedBox to its JSON output form. When
+// divisor is positive, the volumetric and billable weight fields are populated
+// (using the carrier's dimensional divisor); otherwise they are left zero and
+// omitted from the JSON.
+func newPackedBoxOutput(b *boxpacker.PackedBox, divisor float64) PackedBoxOutput {
 	items := make([]ItemOutput, len(b.Items))
 	for i, pi := range b.Items {
 		items[i] = ItemOutput{
@@ -172,7 +246,7 @@ func newPackedBoxOutput(b *boxpacker.PackedBox) PackedBoxOutput {
 			Depth:       pi.Depth,
 		}
 	}
-	return PackedBoxOutput{
+	out := PackedBoxOutput{
 		Reference:         b.Box.Reference(),
 		ItemCount:         len(b.Items),
 		Weight:            b.Weight(),
@@ -182,4 +256,9 @@ func newPackedBoxOutput(b *boxpacker.PackedBox) PackedBoxOutput {
 		VolumeUtilisation: b.VolumeUtilisation(),
 		Items:             items,
 	}
+	if divisor > 0 {
+		out.VolumetricWeight = boxpacker.VolumetricWeight(b.Box, divisor)
+		out.BillableWeight = boxpacker.BillableWeight(b, divisor)
+	}
+	return out
 }

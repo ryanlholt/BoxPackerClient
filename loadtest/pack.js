@@ -11,10 +11,16 @@
 //   BULK=0.1                      fraction of requests that are bulk mixed-item
 //                                 orders (large quantities of several distinct
 //                                 item types). 0 disables them entirely.
+//   COST=0.15                     fraction of requests that use the cost-aware
+//                                 "billableWeight" objective (boxpacker v0.4.0's
+//                                 custom box sorter). 0 disables it entirely.
+//   DIVISOR=5000                  dimensional-weight divisor for those requests
+//                                 (outerVolume / divisor; mm dimensions -> grams).
 //
 // Example:
 //   PROFILE=rate RATE=500 k6 run loadtest/pack.js
 //   BULK=0.3 k6 run loadtest/pack.js          # heavier bulk-order mix
+//   COST=0.5 k6 run loadtest/pack.js          # stress the billable-weight sorter
 
 import http from 'k6/http';
 import { check } from 'k6';
@@ -28,6 +34,17 @@ const RATE = parseInt(__ENV.RATE || '200', 10);
 // they no longer scale with total quantity — this knob keeps a slice of the
 // load exercising that path. See buildBulkPayload below.
 const BULK = parseFloat(__ENV.BULK || '0.1');
+// Share of traffic that asks for the cost-aware "billableWeight" objective,
+// new in boxpacker v0.4.0. It swaps the default box sorter (most items, then
+// fullest) for one that minimises each parcel's billable shipping weight —
+// max(actual, dimensional) — so it runs a comparison callback per candidate box
+// per iteration. This knob keeps a slice of load exercising that path so its
+// extra per-request cost shows up in the latency numbers. See buildOptions.
+const COST = parseFloat(__ENV.COST || '0.15');
+// Carrier dimensional divisor for cost-aware requests: dim weight = outerVolume
+// / DIVISOR. The catalog dimensions are in mm, so 5000 yields a gram-scale
+// figure comparable to the item weights below.
+const DIVISOR = parseFloat(__ENV.DIVISOR || '5000');
 
 // Custom metric so we can see latency split out by payload size.
 const packDuration = new Trend('pack_duration', true);
@@ -64,6 +81,18 @@ function pickItemCount() {
   return randInt(21, 80);                 // large  — stress the packer
 }
 
+// buildOptions returns the per-request options. With probability COST it asks
+// for the cost-aware billableWeight objective (boxpacker v0.4.0), supplying the
+// divisor that objective requires; otherwise it leaves the default objective.
+function buildOptions() {
+  const options = { allowPartialResults: true };
+  if (COST > 0 && Math.random() < COST) {
+    options.objective = 'billableWeight';
+    options.dimWeightDivisor = DIVISOR;
+  }
+  return options;
+}
+
 function buildPayload() {
   const lines = pickItemCount();
   const items = [];
@@ -74,7 +103,7 @@ function buildPayload() {
   return {
     boxes: BOX_CATALOG,
     items: items,
-    options: { allowPartialResults: true },
+    options: buildOptions(),
   };
 }
 
@@ -94,7 +123,7 @@ function buildBulkPayload() {
   return {
     boxes: BOX_CATALOG,
     items: items,
-    options: { allowPartialResults: true },
+    options: buildOptions(),
   };
 }
 

@@ -72,7 +72,9 @@ Endpoints:
   ],
   "options": {
     "allowPartialResults": false,
-    "disableQuantityShortCircuit": false
+    "disableQuantityShortCircuit": false,
+    "objective": "default",
+    "dimWeightDivisor": 0
   }
 }
 ```
@@ -91,6 +93,18 @@ Endpoints:
   optimisation (on by default). The optimisation keeps packing fast for big
   orders of *mixed* item types — not just bulk runs of one item — so there is
   rarely a reason to disable it outside of debugging.
+- **`objective`** selects which box wins at each packing step (boxpacker
+  v0.4.0's custom box sorter). `"default"` (or omitted) keeps the built-in
+  order — most items, then fullest. `"billableWeight"` instead minimises each
+  parcel's *billable shipping weight*: the greater of its actual gross weight
+  and its dimensional weight, so it avoids large, lightly-filled boxes that a
+  carrier would over-charge for. The solver stays greedy, so this tunes the
+  per-parcel choice, not the global cost across all parcels.
+- **`dimWeightDivisor`** is the carrier's dimensional divisor (dim weight =
+  `outerVolume / divisor`). It is **required** when `objective` is
+  `"billableWeight"`. Whenever it is positive, each output box also reports its
+  `volumetricWeight` and `billableWeight`. Keep the divisor consistent with your
+  dimension/weight units (e.g. millimetres with `5000`, inches with `139`).
 
 ## Response schema
 
@@ -105,6 +119,8 @@ Endpoints:
       "innerVolume": 14674000,
       "usedVolume": 9600000,
       "volumeUtilisation": 65.42,
+      "volumetricWeight": 2934.8,
+      "billableWeight": 3960,
       "items": [
         { "description": "mug", "x": 0, "y": 0, "z": 0, "width": 110, "length": 110, "depth": 105 }
       ]
@@ -118,6 +134,8 @@ Endpoints:
 - Each item's `x`/`y`/`z` is the corner closest to the box origin, and
   `width`/`length`/`depth` are the item's dimensions **in its packed
   orientation** (which may differ from the input if it was rotated).
+- `volumetricWeight` and `billableWeight` appear only when the request supplied a
+  positive `dimWeightDivisor`; otherwise they are omitted.
 - `error` is set (with no HTTP error / non-zero exit) when an item fits in no
   box and `allowPartialResults` is `false`; any boxes packed before the
   failure are still returned. Malformed input is a hard failure instead:

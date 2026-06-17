@@ -125,6 +125,38 @@ func BenchmarkPackLargeMixed(b *testing.B) {
 	}
 }
 
+// BenchmarkPackObjective compares the default box-selection objective against
+// boxpacker v0.4.0's custom "billableWeight" sorter on the same medium problem.
+// The sorter runs once per candidate box per iteration, so this surfaces the
+// per-request overhead of optimising for dimensional shipping weight — useful
+// for sizing capacity when the service runs cost-aware packing.
+func BenchmarkPackObjective(b *testing.B) {
+	objectives := []struct {
+		name    string
+		options Options
+	}{
+		{"default", Options{AllowPartialResults: true}},
+		{"billableWeight", Options{AllowPartialResults: true, Objective: "billableWeight", DimWeightDivisor: 5000}},
+	}
+
+	for _, o := range objectives {
+		req := benchRequest(15)
+		req.Options = o.options
+		b.Run(o.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				resp, err := Pack(req)
+				if err != nil {
+					b.Fatalf("Pack returned validation error: %v", err)
+				}
+				if resp.Error != "" {
+					b.Fatalf("unexpected packing error: %s", resp.Error)
+				}
+			}
+		})
+	}
+}
+
 // BenchmarkPackParallel runs Pack concurrently to gauge how throughput scales
 // with cores — the closest in-process analogue to the HTTP service under load.
 // Set parallelism with -cpu, e.g. `go test -bench=Parallel -cpu=1,4,10`.

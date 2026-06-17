@@ -21,7 +21,7 @@ func Pack(req *Request) (*Response, error) {
 
 	packedBoxes, err := packer.Pack()
 	for _, b := range packedBoxes {
-		resp.Boxes = append(resp.Boxes, newPackedBoxOutput(b))
+		resp.Boxes = append(resp.Boxes, newPackedBoxOutput(b, req.Options.DimWeightDivisor))
 	}
 
 	if err != nil {

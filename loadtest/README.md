@@ -9,6 +9,12 @@ winning mix. A meaningful test therefore (a) varies payload size and *shape*
 (including bulk mixed-item orders, see `BULK` below) and (b) drives a controlled
 request **rate**, not just raw connection count.
 
+A slice of traffic also exercises boxpacker v0.4.0's cost-aware
+`billableWeight` objective (see `COST`/`DIVISOR` below): a custom box sorter that
+runs a comparison per candidate box per iteration to minimise dimensional
+shipping weight. It is measurably heavier per request than the default sorter, so
+mixing it in keeps the latency numbers honest for a service that packs for cost.
+
 ## 1. Start the service
 
 ```sh
@@ -30,12 +36,21 @@ PROFILE=rate RATE=500 k6 run loadtest/pack.js   # hold 500 req/s for 2m
 PROFILE=spike k6 run loadtest/pack.js           # sudden 20x spike
 PROFILE=soak  RATE=300 k6 run loadtest/pack.js  # 30m steady soak
 BULK=0.3 k6 run loadtest/pack.js                # heavier bulk mixed-item mix
+COST=0.5 k6 run loadtest/pack.js                # stress the billable-weight sorter
 ```
 
 By default ~10% of generated requests are **bulk mixed-item orders** (several
 distinct item types, each at a large quantity) — the workload v0.3.0's
 short-circuit is built for. Tune the share with `BULK` (e.g. `BULK=0` to send
 only small/medium orders, `BULK=0.3` to stress the replication path harder).
+
+By default ~15% of requests ask for the **`billableWeight` objective** (boxpacker
+v0.4.0's custom box sorter, which optimises for dimensional shipping weight rather
+than the default most-items/fullest order). Tune the share with `COST` (`COST=0`
+to disable it, `COST=0.5` to make cost-aware packing the dominant cost) and the
+carrier divisor with `DIVISOR` (dim weight = `outerVolume / DIVISOR`). This path
+is ~2x the per-request CPU of the default sorter, so raising `COST` lowers the
+saturation RPS — sweep it to size capacity for a cost-optimising deployment.
 
 Read the output: `http_req_duration` p95/p99 is your latency SLO, `iterations/s`
 is sustained throughput, `http_req_failed` should stay ~0. When p99 starts
@@ -65,7 +80,9 @@ go test -bench=. -benchmem -benchtime=5s
 `bench_test.go` calls `Pack(&req)` directly. `BenchmarkPack` sweeps small/medium/
 large fixed-quantity problems; `BenchmarkPackLargeMixed` packs large quantities of
 several distinct item types to show the v0.3.0 short-circuit keeping cost sublinear
-in the item total.
+in the item total; `BenchmarkPackObjective` runs the same problem under the default
+and v0.4.0 `billableWeight` objectives side by side, so the custom sorter's
+per-request overhead is attributable.
 
 ## Interpreting results / what to watch
 
