@@ -21,6 +21,12 @@ on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     `X-Origin-Auth: <secret>`. Intended for deployments behind Cloudflare, where
     a Transform Rule injects the header so the public origin can reject traffic
     that bypassed Cloudflare. Left unset, only the bearer token is enforced.
+- **Request body-size cap and server timeouts.** `POST /pack` now caps the
+  request body and returns `413 Request Entity Too Large` when exceeded. The cap
+  defaults to 10 MiB and is configurable via `BOXPACKER_MAX_BODY_BYTES` (an
+  invalid override makes the service refuse to start). The HTTP server now sets
+  read-header, read, write, and idle timeouts to guard against slow or stuck
+  connections.
 
 - **Cost-aware packing (`objective` option).** A new `objective` request option
   selects which box wins at each packing step, backed by BoxPacker v0.4.0's

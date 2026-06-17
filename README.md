@@ -68,6 +68,22 @@ is enforced. Both secrets are compared in constant time. Always run behind TLS
 (Cloudflare → origin should be SSL/TLS **Full (strict)**), since the secrets
 travel in request headers.
 
+### Limits and timeouts
+
+`POST /pack` caps the request body and returns `413 Request Entity Too Large`
+when it is exceeded. The server also sets read/write/idle timeouts to protect
+against slow or stuck connections.
+
+| Env var                    | Required | Purpose                                                        |
+|----------------------------|----------|----------------------------------------------------------------|
+| `BOXPACKER_MAX_BODY_BYTES` | no       | Max `/pack` request body in bytes. Default `10485760` (10 MiB). |
+
+The default is generous because payloads stay small — item quantities are
+expressed as a field, not by repeating items. An invalid override (non-numeric
+or ≤ 0) makes the service refuse to start. Note that any proxy in front (e.g.
+Cloudflare's ~100 MB default upload limit, or DigitalOcean App Platform) may
+impose its own, lower cap.
+
 ## Request schema
 
 ```json
